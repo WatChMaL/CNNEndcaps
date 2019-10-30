@@ -49,7 +49,10 @@ def GenMapping(csv_file):
                 value = value.strip()
                 if value: # If the value is not empty
                     mPMT_to_index[int(value)] = [col, row]
-    return mPMT_to_index
+    npmap = np.zeros((max(mPMT_to_index)+1,2),dtype=np.int)
+    for k, v in mPMT_to_index.items():
+        npmap[k]=v
+    return npmap
 
 if __name__ == '__main__':
     
@@ -117,20 +120,24 @@ if __name__ == '__main__':
         digi_hit_pmt = data['digi_hit_pmt']
         digi_hit_charge = data['digi_hit_charge']
         digi_hit_time = data['digi_hit_time']
+        digi_hit_trigger = data['digi_hit_trigger']
+        trigger_time = data['trigger_time']
         delay = 0
         for i in range(len(digi_hit_pmt)):
-            hit_pmts = digi_hit_pmt[i]
+            first_trigger = np.argmin(trigger_time[i])
+            good_hits = np.where(digi_hit_trigger[i]==first_trigger)
+            hit_pmts = digi_hit_pmt[i][good_hits]
             if len(hit_pmts) == 0:
                 delay += 1
                 continue
-            charge = digi_hit_charge[i]
-            time = digi_hit_time[i]
-            for j in range(len(hit_pmts)):
-                hit_mpmt = hit_pmts[j] // 19
-                pmt_channel = hit_pmts[j] % 19
-                index = mPMT_to_index[hit_mpmt]
-                x_data[i - delay, index[0], index[1], pmt_channel] = charge[j]
-                x_data[i - delay, index[0], index[1], pmt_channel + 19] = time[j]
+            charge = digi_hit_charge[i][good_hits]
+            time = digi_hit_time[i][good_hits]
+            hit_mpmts = hit_pmts // 19
+            pmt_channels = hit_pmts % 19
+            rows = mPMT_to_index[hit_mpmts,0]
+            cols = mPMT_to_index[hit_mpmts,1]
+            x_data[i-delay, rows, cols, pmt_channels] = charge
+            x_data[i-delay, rows, cols, pmt_channels + 19] = time
         
         event_id = data['event_id']
         root_file = data['root_file']
