@@ -206,7 +206,7 @@ class TimeDisplay( tk.Frame ):
         self.main_window = main_win
         self.make_plot()
 
-    def update_plot(self, zrange=[-1.,1.] ):
+    def update_plot(self, zrange=[-1.,-1.] ):
         """
         update_plot deletes the existing button frame, toolbar, and plot, 
         and builds a fresh plot by calling make_plot
@@ -217,7 +217,7 @@ class TimeDisplay( tk.Frame ):
         self.toolbar.destroy()
         self.make_plot(zrange)
 
-    def make_plot(self,zrange=[-1.,1.] ):
+    def make_plot(self,zrange=[-1.,-1.] ):
         """
         makes the button frame, time display frame, and makes the time plot
         """
