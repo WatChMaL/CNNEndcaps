@@ -3,9 +3,10 @@
 # it is set for my MacOS machine
 #
 # event display using tkinter.
+# Separate pages for Charge (Q), Time (T), Charge vs Time (QT), and a 3D view (3D
 #
 # Usage:
-#   event_display.py input_event_data.npz input_geometry.npz
+#   event_display.py [input_geometry] [input_event_data.npz] [event-number]
 #
 # features:
 # buttons: 1) Charge display
@@ -70,12 +71,12 @@ class EventDisplayWindow( tk.Tk ):
 
         self.windows = {}
 
-        for win in ( ChargeDisplay, TimeDisplay, QTDisplay ):
+        for win in ( Display3D, ChargeDisplay, TimeDisplay, QTDisplay ):
             window = win( self.main_window, self )
             self.windows[ win ] = window
             window.grid( row=0, column=0, sticky="nsew"  )
 
-        self.show_window( ChargeDisplay )
+        self.show_window( Display3D )
 
 
     def show_window( self, win ):
@@ -110,9 +111,11 @@ def EvDispNavigation( self_frame, main_frame, zrange ):
     global num_events
     frm = tk.Frame( self_frame )
     # buttons to change which plot
+    btn_3ddisp = ttk.Button( frm, text = "3D", command = lambda: main_frame.show_window( Display3D ) )
     btn_qdisp = ttk.Button( frm, text = "Q", command = lambda: main_frame.show_window( ChargeDisplay ) )
     btn_tdisp = ttk.Button( frm, text = "T", command = lambda: main_frame.show_window( TimeDisplay ) )
     btn_qtdisp = ttk.Button( frm, text = "QT", command = lambda: main_frame.show_window( QTDisplay ) )
+    btn_3ddisp.pack(side=tk.LEFT)
     btn_qdisp.pack(side=tk.LEFT)
     btn_tdisp.pack(side=tk.LEFT)
     btn_qtdisp.pack(side=tk.LEFT)
@@ -275,7 +278,48 @@ class QTDisplay( tk.Frame ):
         canvas._tkcanvas.pack( side=tk.TOP, fill=tk.BOTH, expand=True )
         self.frm_plot.pack()
         
+class Display3D( tk.Frame ):
+    """
+    Frame to hold the 3D event display.
+    """
+    global event_number
+    def __init__( self, parent, main_win ):
+        tk.Frame.__init__( self, parent )
+        self.main_window = main_win
+        self.make_plot()
 
+    def update_plot(self, zrange=[-1.,-1.] ):
+        """
+        update_plot deletes the existing button frame, toolbar, and plot, 
+        and builds a fresh plot by calling make_plot
+        """
+        plt.close( self.fig )
+        self.frm_plot.destroy()
+        self.frm_buttons.destroy()
+        self.toolbar.destroy()
+        self.make_plot(zrange)
+
+    def make_plot(self,zrange=[-1.,-1.] ):
+        """
+        makes the button frame, time display frame, and makes the time plot
+        """
+        self.frm_buttons = EvDispNavigation( self, self.main_window, zrange )
+        self.frm_buttons.pack()
+
+        self.frm_plot = tk.Frame( self )
+        lbl_notes = ttk.Label( self.frm_plot, text="Color represents time, size of point is charge." )
+        lbl_notes.pack(side=tk.TOP)
+        
+        self.fig = plt.figure(figsize=[12,12])
+        canvas = FigureCanvasTkAgg( self.fig, self.frm_plot )
+        canvas.draw()
+        EventDisplay3D( self.fig, geofile, datafile, event_number, zrange )
+        canvas.get_tk_widget().pack( side = tk.BOTTOM, fill=tk.BOTH, expand = True )
+
+        self.toolbar = NavigationToolbar2Tk( canvas, self )
+        self.toolbar.update()
+        canvas._tkcanvas.pack( side=tk.TOP, fill=tk.BOTH, expand=True )
+        self.frm_plot.pack()
 
 
 def PMT_to_flat_cylinder_map_positive( tubes, tube_xyz ):
@@ -417,6 +461,78 @@ def ApplyZrange( self_frame, entry_zmin, entry_zmax ):
     zmax = float( entry_zmax.get() )
     print("zmin=",zmin," zmax=",zmax )
     self_frame.update_plot( [zmin, zmax] )
+
+    
+def GetParticleStartStops( datain, evno ):
+    """
+    Return start and stop of each non-zero charged particle type
+    
+    ( x,  y , z, pid, Energy)
+    
+    where x -> [ [startx, stopx ] , [startx, stopx ], ... ]
+    ...
+
+    """
+    xret = []
+    yret = []
+    zret = []
+    pidret = []
+    energies = []
+    
+    startpos = datain[ 'track_start_position'][ evno ]
+    stoppos = datain[ 'track_stop_position'][ evno ]
+    pids = datain[ 'track_pid' ][ evno ]
+    enes = datain[ 'track_energy' ][ evno ]
+    
+    for idx, pid in enumerate( pids ):
+        # keep e, mu, gamma (11,13,22)
+        if idx==0:
+            continue
+        if abs(pid)!=11 and abs(pid)!=13 and pid!=22:
+            continue
+        xret.append( [ startpos[idx,0],  stoppos[idx, 0] ])
+        yret.append( [ startpos[idx,1],  stoppos[idx, 1] ])
+        zret.append( [ startpos[idx,2],  stoppos[idx, 2] ]) 
+        pidret.append( pid )
+        energies.append( enes[idx] )
+                      
+    return ( xret, yret, zret, pidret, energies )  
+
+
+def EventDisplay3D( fig, geo, data, evno, zrange=[-1.,-1.] ):
+
+    partx, party, partz, partid, partene = GetParticleStartStops( data, evno )
+    digitubes = data[ 'digi_hit_pmt' ][ evno ]
+    digicharges = data[ 'digi_hit_charge' ][ evno ]
+    digitimes = data[ 'digi_hit_time' ][ evno ]
+
+    evxyz = geo['position'][ digitubes ]
+
+    
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_xlim3d( -R, R )
+    ax.set_ylim3d( -H/2, H/2)
+    ax.set_zlim3d( -R, R)
+
+    if zrange[0] == zrange[1]:
+        img = ax.scatter( evxyz[:,0], evxyz[:,1], evxyz[:,2], marker='o', c=digitimes, s=3*digicharges )#, vmin=940 , vmax=1040  )
+    else:
+        img  = ax.scatter( evxyz[:,0], evxyz[:,1], evxyz[:,2], marker='o', c=digitimes, s=3*digicharges , vmin=zrange[0] , vmax=zrange[1]  )
+
+        
+    plt.set_cmap('cubehelix_r')
+    colors = { 11:'r', 13:'g', 22:'c'}
+    for i, pid in enumerate( partid ):
+        ax.plot( partx[i], party[i], partz[i], c=colors[ abs(pid) ] )
+        ax.text( partx[i][0], party[i][0], partz[i][0], "%.1f MeV"%partene[i], color=colors[ abs(pid) ])    
+    ax.set_xlabel('X (cm)')
+    ax.set_ylabel('Y (cm)')
+    ax.set_zlabel('Z (cm)')
+    ax.set_title('Event %d'%evno)
+    plt.colorbar(img) 
+    ax.text( -400, -400, 550, "electrons are red", c='r' )
+    ax.text( -400, -400, 510, "muons are green", c='g' )
+    ax.text( -400, -400, 470, "gammas are cyan", c='c' )
     
 
 if __name__ == '__main__':
@@ -445,8 +561,10 @@ if __name__ == '__main__':
     tubes = geofile[ 'tube_no' ]
     tube_xyz = geofile[ 'position' ]
     tube_x = tube_xyz[:,0]
+    tube_y = tube_xyz[:,1]
     R =  (tube_x.max() - tube_x.min())/2.0
-    print("R=",R)
+    H =  (tube_y.max() - tube_y.min())
+    print("R=",R, "H=",H)
 
     PMTFlatMapPositive = PMT_to_flat_cylinder_map_positive( tubes, tube_xyz )
 
